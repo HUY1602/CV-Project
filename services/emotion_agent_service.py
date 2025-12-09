@@ -123,7 +123,7 @@ Nhiệm vụ:
 4. Không an ủi khách.
 5. Không đưa lời khuyên mang tính tâm lý cá nhân.
 6. Giọng điệu sắc nét – nội bộ – tập trung vào hành động.
-7. Trả lời tối đa 5 câu.
+7. Trả lời tối đa 4 câu.
 Hãy trả lời bằng tiếng Việt.
 """
 

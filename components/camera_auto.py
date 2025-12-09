@@ -4,6 +4,7 @@ import time
 from PIL import Image
 from streamlit_webrtc import WebRtcMode, VideoProcessorBase, webrtc_streamer
 
+# Import các service
 from services.deepface_service import analyze_emotion
 from services.gemini_service import (
     get_gemini_api_key,
@@ -13,7 +14,6 @@ from services.gemini_service import (
 from services.emotion_agent_service import (
     generate_advice_with_memory_from_result,
 )
-
 from services.tts_service import text_to_speech_file, estimate_speech_duration, cleanup_audio_file
 
 
@@ -107,14 +107,14 @@ def render_camera_auto(interval_seconds: int = 15):
             st.session_state.detect_count = 0
             st.session_state.current_phase = 5
             st.success("✅ Đã reset! Sẵn sàng detect cảm xúc mới.")
-            st.rerun()  # <--- ĐÃ SỬA
+            st.rerun()
 
     with col2:
         if st.button("▶️ Detect cảm xúc ngay"):
             st.session_state.waiting_for_ai = False
             st.session_state.last_detection_time = 0
             st.session_state.force_detect = True
-            st.rerun()  # <--- ĐÃ SỬA
+            st.rerun()
 
     with col3:
         auto_mode = st.checkbox("🔄 Tự động detect", value=False, key="auto_detect_mode")
@@ -225,10 +225,6 @@ def render_camera_auto(interval_seconds: int = 15):
 
         # -------------------------
         # XÁC ĐỊNH PHASE
-        # Logic:
-        # - Nếu auto_mode is True và detect_count < 6: phase = detect_count (0..5), sau khi xử lý thành công tăng detect_count
-        # - Nếu auto_mode False: giữ current_phase (do user chọn hoặc default)
-        # - Khi detect_count >=6 => current_phase = 5 (bình thường)
         # -------------------------
         if auto_mode:
             if st.session_state.detect_count < 6:
@@ -244,9 +240,7 @@ def render_camera_auto(interval_seconds: int = 15):
         status_placeholder.info(f"🔎 Phase {phase}: {phase_label}")
 
         # -------------------------
-        # GỌI GEMINI (hoặc agent) CHỈ KHI:
-        # - model key có sẵn
-        # - và (cảm xúc thay đổi so với previous_emotion) OR (lần đầu cho phase này)
+        # GỌI GEMINI (hoặc agent)
         # -------------------------
         api_key = get_gemini_api_key()
         if not api_key:
@@ -274,15 +268,13 @@ def render_camera_auto(interval_seconds: int = 15):
 
         # Quyết định có gọi AI hay không
         previous_emotion = st.session_state.previous_emotion
-        # track first call per phase to allow AI even nếu emotion không đổi
+        # track first call per phase
         if "phase_called" not in st.session_state:
             st.session_state.phase_called = set()
 
         need_call_ai = False
-        # Nếu cảm xúc thay đổi so với trước đó -> gọi
         if previous_emotion is None or previous_emotion != dominant_emotion:
             need_call_ai = True
-        # Hoặc lần đầu cho phase này (chưa gọi AI cho phase)
         if phase not in st.session_state.phase_called:
             need_call_ai = True
 
@@ -302,7 +294,6 @@ def render_camera_auto(interval_seconds: int = 15):
                     )
                 except Exception as e:
                     suggestion_text = f"⚠️ Lỗi khi gọi Gemini: {e}"
-                # đảm bảo không ném exception ra ngoài
 
             # clear flags
             st.session_state.is_gemini_processing = False
@@ -319,11 +310,12 @@ def render_camera_auto(interval_seconds: int = 15):
                 if suggestion_text.startswith("⚠️"):
                     suggestion_placeholder.warning(suggestion_text)
                     status_placeholder.warning("⚠️ Có lỗi xảy ra khi gọi AI")
-                    # Vẫn tăng detect_count kể cả khi AI lỗi
+                    # Dù lỗi AI vẫn tăng phase để không bị kẹt
                     if auto_mode and phase < 5 and st.session_state.detect_count == phase:
                         st.session_state.detect_count += 1
                         st.session_state.last_detection_time = 0
-                        st.rerun()  # <--- ĐÃ SỬA
+                        st.session_state.force_detect = True
+                        st.rerun()  # <--- RERUN TỰ ĐỘNG
                 else:
                     suggestion_placeholder.markdown(
                         f"### 💬 Gợi ý từ trợ lý nhà hàng (Phase {phase})\n\n{suggestion_text}"
@@ -337,61 +329,88 @@ def render_camera_auto(interval_seconds: int = 15):
                             emotion_intro = create_emotion_intro(dominant_emotion)
                             full_text_to_speak = f"{emotion_intro} {suggestion_text}"
 
-                            audio_file = text_to_speech_file(full_text_to_speak, lang="vi", slow=False)
+                            audio_file = text_to_speech_file(full_text_to_speak, lang="vi", speed=1.5)
+                            
                             if audio_file:
                                 st.session_state.current_audio_file = audio_file
                                 audio_placeholder.audio(audio_file, format="audio/mp3", autoplay=True)
 
-                                # estimate duration (fallback 2s nếu lỗi)
+                                # -----------------------------------------------------------
+                                # [FIX] DÙNG AV ĐỂ LẤY THỜI GIAN THỰC CỦA FILE AUDIO
+                                # -----------------------------------------------------------
                                 try:
-                                    estimated_duration = estimate_speech_duration(full_text_to_speak)
-                                    time_to_wait = max(1.0, float(estimated_duration) + 0.5)
-                                except Exception:
-                                    time_to_wait = 2.0
+                                    # Sử dụng thư viện av để lấy duration chính xác
+                                    with av.open(audio_file) as container:
+                                        # container.duration tính bằng micro giây -> chia 1.000.000
+                                        real_duration = float(container.duration) / 1000000
+                                    
+                                    # Buffer thêm 1 giây an toàn
+                                    time_to_wait = real_duration + 1.0
+                                    
+                                except Exception as e:
+                                    # Fallback: Nếu không đọc được file, dùng lại hàm ước lượng + buffer lớn (5s)
+                                    print(f"Lỗi đọc duration: {e}")
+                                    try:
+                                        est_duration = estimate_speech_duration(full_text_to_speak, speed=1.5)
+                                        time_to_wait = est_duration + 5.0
+                                    except:
+                                        time_to_wait = 10.0 # Mặc định an toàn
 
-                                status_placeholder.info(f"🔊 Đang phát audio... (ước tính ~{int(time_to_wait)}s)")
-
-                                # đợi một chút cho audio play (không khối quá lâu)
+                                status_placeholder.info(f"🔊 Đang phát audio... (thời gian thực: {time_to_wait:.1f}s)")
                                 time.sleep(time_to_wait)
 
-                                # cleanup
                                 cleanup_audio_file(audio_file)
                                 st.session_state.is_playing_audio = False
                                 st.session_state.current_audio_file = None
-
                                 status_placeholder.success("✅ Đã đọc xong! Sẵn sàng detect tiếp theo.")
                                 
-                                # Tăng detect_count để chuyển sang phase tiếp theo
+                                # --- CHUYỂN PHASE TỰ ĐỘNG ---
                                 if auto_mode and phase < 5 and st.session_state.detect_count == phase:
                                     st.session_state.detect_count += 1
                                     st.session_state.last_detection_time = 0
-                                    st.rerun()  # <--- ĐÃ SỬA
-
+                                    st.session_state.force_detect = True
+                                    st.rerun()  # <--- RERUN TỰ ĐỘNG
+                                # ----------------------------
                             else:
                                 st.session_state.is_playing_audio = False
                                 status_placeholder.warning("⚠️ Không thể tạo audio. Tiếp tục detect...")
+                                
+                                # Vẫn chuyển phase dù lỗi Audio
+                                if auto_mode and phase < 5 and st.session_state.detect_count == phase:
+                                    st.session_state.detect_count += 1
+                                    st.session_state.last_detection_time = 0
+                                    st.session_state.force_detect = True
+                                    st.rerun()
+
                         except Exception as e:
-                            # Không để lỗi TTS làm crash
                             st.warning(f"Lỗi TTS: {e}")
                             st.session_state.is_playing_audio = False
+                            
+                            # Vẫn chuyển phase dù lỗi TTS Exception
+                            if auto_mode and phase < 5 and st.session_state.detect_count == phase:
+                                st.session_state.detect_count += 1
+                                st.session_state.last_detection_time = 0
+                                st.session_state.force_detect = True
+                                st.rerun()
                     else:
+                        # Case không bật TTS
                         status_placeholder.success("✅ AI đã trả lời xong! Sẵn sàng detect tiếp theo.")
                         
-                        # Tăng detect_count để chuyển sang phase tiếp theo
                         if auto_mode and phase < 5 and st.session_state.detect_count == phase:
                             st.session_state.detect_count += 1
                             st.session_state.last_detection_time = 0
-                            st.rerun()  # <--- ĐÃ SỬA
+                            st.session_state.force_detect = True
+                            st.rerun()  # <--- RERUN TỰ ĐỘNG
             else:
                 suggestion_placeholder.error("❌ Không nhận được phản hồi từ AI.")
         else:
-            # không cần gọi AI, hiển thị suggestion cũ (nếu có)
+            # không cần gọi AI
             if st.session_state.last_gemini_suggestion:
                 suggestion_placeholder.markdown(
                     f"### 💬 Gợi ý từ trợ lý nhà hàng (cũ)\n\n{st.session_state.last_gemini_suggestion}"
                 )
             status_placeholder.info("ℹ️ Cảm xúc không thay đổi và phase đã được xử lý trước đó. Tiếp tục detect...")
 
-        # Nếu auto_mode bật nhưng đã hoàn tất 6 phase, đặt current_phase = 5 (bình thường)
+        # Nếu auto_mode bật nhưng đã hoàn tất 6 phase
         if auto_mode and st.session_state.detect_count >= 6:
             st.session_state.current_phase = 5
