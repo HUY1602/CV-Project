@@ -1,11 +1,10 @@
 # CV-Project – Restaurant Emotion Assistant
 
-This app detects customer emotions via webcam (DeepFace) and gives service advice via Gemini. It can read responses aloud with multiple TTS backends (edge-tts → gTTS → pyttsx3).
+This app detects customer emotions via webcam (OpenFace) and gives service advice via Gemini. It can read responses aloud with multiple TTS backends (edge-tts).
 
 ## Prerequisites
 
 - Python 3.11+ (venv recommended)
-- ffmpeg (for pydub when using gTTS speed-up)
 - Webcam + microphone permissions in browser
 
 ## Setup
