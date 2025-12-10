@@ -23,15 +23,8 @@ This app detects customer emotions via webcam (OpenFace) and gives service advic
 
 ## Key features
 
-- Auto 6-phase flow (0..5) or manual detect
-- Emotion analysis (DeepFace) → Gemini advice
-- TTS with fallback chain: edge-tts → gTTS → pyttsx3 (offline)
-- Audio speed default 1.5x (can be adjusted in code)
-
-## Troubleshooting TTS
-
-- If edge-tts fails (network/WebSocket), app falls back to gTTS; if gTTS fails, to pyttsx3.
-- gTTS speed-up needs `pydub` + `ffmpeg` in PATH.
+- Face ID + Emotion analysis (OpenFace) → Gemini advice
+- If edge-tts fails (network/WebSocket), you can falls back to gTTS; if gTTS fails, to pyttsx3.
 
 ## Testing Gemini
 
