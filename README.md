@@ -171,7 +171,7 @@ DeepFace/
 - **Edge TTS**: Text-to-speech tiếng Việt
 
 ## 🎯 Workflow
-
+siuuu
 1. **Face Detection**: YOLO detect tất cả khuôn mặt trong frame
 2. **Face Recognition**: 
    - Tính FaceNet embedding (512-D)
